@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "OK학당 자동 다음차시",
+  "version": "1.0.0",
+  "description": "강의 완료 팝업에서 확인 버튼을 자동으로 클릭합니다.",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://okfngroup.ubob.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ]
+}
