@@ -1,0 +1,176 @@
+아래는 내가 만들려는 Chrome 확장 프로그램의 기획과 코드야.
+
+---
+
+[목적]
+- 대상 사이트: https://okfngroup.ubob.com/
+- 강의 영상이 끝나면 "콘텐츠 학습이 완료되었습니다. 다음 콘텐츠 학습을 진행하시겠습니까?" 라는 팝업이 뜸
+- 이 팝업에서 "확인" 버튼을 자동으로 클릭하는 Chrome 확장 프로그램을 만들고 싶음
+
+[기존 코드]
+
+manifest.json:
+{
+  "manifest_version": 3,
+  "name": "OK학당 자동 다음차시",
+  "version": "1.0",
+  "description": "강의 완료 팝업에서 확인 버튼을 자동으로 클릭합니다.",
+  "content_scripts": [
+    {
+      "matches": ["*://okfngroup.ubob.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
+content.js:
+console.log('[OK학당 Auto] 확장 로드됨');
+
+const POPUP_KEYWORD = '콘텐츠 학습이 완료되었습니다';
+
+function tryClickConfirm(node) {
+  const text = node.innerText || node.textContent || '';
+  if (!text.includes(POPUP_KEYWORD)) return;
+
+  const buttons = node.querySelectorAll
+    ? node.querySelectorAll('button, a, input[type="button"]')
+    : [];
+
+  for (const btn of buttons) {
+    const btnText = (btn.innerText || btn.textContent || btn.value || '').trim();
+    if (btnText === '확인') {
+      console.log('[OK학당 Auto] 팝업 감지 → 확인 버튼 클릭!');
+      setTimeout(() => btn.click(), 300);
+      return;
+    }
+  }
+}
+
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      tryClickConfirm(node);
+    }
+  }
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+});
+
+console.log('[OK학당 Auto] MutationObserver 시작 - 팝업 대기 중...');
+
+---
+
+[작업 지시]
+1. 위 코드를 기반으로 manifest.json과 content.js 파일을 완성된 형태로 작성해줘.
+2. 팝업이 iframe 내부에 있을 경우도 대응할 수 있도록 처리해줘.
+3. 팝업이 이미 DOM에 존재하는 상태(페이지 로드 시점에 이미 있는 경우)도 감지할 수 있도록 초기 스캔 로직도 추가해줘.
+4. 버튼 클릭이 실제로 발생했는지 콘솔 로그로 확인할 수 있도록 로깅을 명확히 해줘.
+5. Chrome unpacked extension(로컬 개발자 모드)으로 바로 로드할 수 있는 형태로 파일 구조와 내용을 정리해줘.
+6. 코드에 한국어 주석을 달아줘.
+
+
+
+
+
+스크린샷에서 팝업 구조가 잘 보이네요! **"콘텐츠 학습이 완료되었습니다."** 팝업에서 "확인" 버튼만 자동 클릭하는 것은 MutationObserver로 충분히 구현 가능합니다.
+
+## 구현 방향
+
+팝업은 동적으로 DOM에 추가되는 커스텀 모달이므로, `MutationObserver`로 DOM 변화를 감시하다가 해당 텍스트가 있는 팝업이 감지되면 "확인" 버튼을 클릭하는 방식이 가장 안정적입니다.
+
+## 📁 파일 구조
+
+```
+okfn-auto-next/
+├─ manifest.json
+└─ content.js
+```
+
+## 🧩 manifest.json
+
+```json
+{
+  "manifest_version": 3,
+  "name": "OK학당 자동 다음차시",
+  "version": "1.0",
+  "description": "강의 완료 팝업에서 확인 버튼을 자동으로 클릭합니다.",
+  "content_scripts": [
+    {
+      "matches": ["*://okfngroup.ubob.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+```
+
+## 🖱️ content.js
+
+```javascript
+console.log('[OK학당 Auto] 확장 로드됨');
+
+// 팝업 텍스트 키워드 (화면에 보이는 문구 기준)
+const POPUP_KEYWORD = '콘텐츠 학습이 완료되었습니다';
+
+// 확인 버튼 클릭 시도 함수
+function tryClickConfirm(node) {
+  // 추가된 노드 혹은 그 하위에서 팝업 키워드 탐색
+  const text = node.innerText || node.textContent || '';
+  if (!text.includes(POPUP_KEYWORD)) return;
+
+  // "확인" 버튼 찾기: 팝업 내 버튼 중 텍스트가 '확인'인 것
+  const buttons = node.querySelectorAll
+    ? node.querySelectorAll('button, a, input[type="button"]')
+    : [];
+
+  for (const btn of buttons) {
+    const btnText = (btn.innerText || btn.textContent || btn.value || '').trim();
+    if (btnText === '확인') {
+      console.log('[OK학당 Auto] 팝업 감지 → 확인 버튼 클릭!');
+      // 바로 클릭하지 않고 300ms 살짝 지연 (DOM 렌더링 안정화)
+      setTimeout(() => btn.click(), 300);
+      return;
+    }
+  }
+}
+
+// MutationObserver로 DOM 변화 감시
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType !== 1) continue; // Element 노드만
+      tryClickConfirm(node);
+    }
+  }
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+});
+
+console.log('[OK학당 Auto] MutationObserver 시작 - 팝업 대기 중...');
+```
+
+## 🧪 설치 및 테스트 방법
+
+1. 위 두 파일을 폴더 하나에 저장 (or GitHub에 올리고 `Download ZIP` 후 압축 해제)
+2. 크롬 주소창에 `chrome://extensions` 입력
+3. 우측 상단 **개발자 모드** 켜기
+4. **"압축 해제된 확장 프로그램 로드"** → 폴더 선택
+5. OK학당 접속 후 강의 끝나면 자동 클릭 확인
+
+## ⚠️ 만약 안 된다면 (디버깅 포인트)
+
+사이트 HTML을 직접 봐야 정확한 선택자를 알 수 있어서, 만약 위 코드가 동작하지 않으면:
+
+1. 강의 사이트 팝업 뜬 상태에서 **F12 → Elements 탭**
+2. 팝업 영역 우클릭 → **"요소 검사"**
+3. 확인 버튼의 실제 HTML 태그/클래스 확인 후 알려주면 선택자 바로 수정해드릴 수 있어요
+
+예를 들어 확인 버튼이 `<button class="btn-confirm">확인</button>` 이런 식이면 `querySelectorAll('button.btn-confirm')` 으로 바꾸면 더 정확합니다.
