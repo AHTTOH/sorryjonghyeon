@@ -70,14 +70,14 @@
     return normalizeText(element.innerText || element.textContent || element.value || '');
   }
 
-  // 저장된 배속값이 이상할 때를 대비해 허용 범위(1.0x ~ 5.0x)로 보정한다.
+  // 저장된 배속값이 이상할 때를 대비해 허용 범위(1.0x ~ 3.0x)로 보정한다.
   function normalizePlaybackRate(value) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) {
       return DEFAULT_PLAYBACK_RATE;
     }
 
-    return Math.max(1, Math.min(5, numeric));
+    return Math.max(1, Math.min(3, numeric));
   }
 
   // HTML5 video 요소에 목표 배속을 강제로 적용한다.

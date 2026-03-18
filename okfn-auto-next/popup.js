@@ -10,7 +10,7 @@ function normalizePlaybackRate(value) {
     return DEFAULT_PLAYBACK_RATE;
   }
 
-  return Math.max(1, Math.min(5, numeric));
+  return Math.max(1, Math.min(3, numeric));
 }
 
 function renderActiveRate(rate) {
