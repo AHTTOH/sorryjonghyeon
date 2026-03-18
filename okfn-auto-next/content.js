@@ -4,6 +4,8 @@
     '콘텐츠 학습이 완료되었습니다',
     '다음 콘텐츠 학습을 진행하시겠습니까'
   ];
+  const STORAGE_KEY_PLAYBACK_RATE = 'playbackRate';
+  const DEFAULT_PLAYBACK_RATE = 3.0;
   const CONFIRM_TEXT = '확인';
   const CLICK_DELAY_MS = 300;
   const PERIODIC_SCAN_MS = 1000;
@@ -24,6 +26,9 @@
   let lastClickedButton = null;
   let lastClickedAt = 0;
   let periodicScanStarted = false;
+  let storageSyncStarted = false;
+  let targetPlaybackRate = DEFAULT_PLAYBACK_RATE;
+  const boundVideos = new WeakSet();
 
   // 현재 스크립트가 어느 프레임에서 실행 중인지 로그에 표시한다.
   function getFrameLabel() {
@@ -63,6 +68,128 @@
   // 버튼 텍스트를 태그 종류와 무관하게 동일한 방식으로 읽는다.
   function getButtonText(element) {
     return normalizeText(element.innerText || element.textContent || element.value || '');
+  }
+
+  // 저장된 배속값이 이상할 때를 대비해 허용 범위(1.0x ~ 5.0x)로 보정한다.
+  function normalizePlaybackRate(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return DEFAULT_PLAYBACK_RATE;
+    }
+
+    return Math.max(1, Math.min(5, numeric));
+  }
+
+  // HTML5 video 요소에 목표 배속을 강제로 적용한다.
+  function applyPlaybackRate(video, reason) {
+    if (!(video instanceof HTMLVideoElement)) {
+      return false;
+    }
+
+    try {
+      const before = Number(video.playbackRate || 1);
+      if (Math.abs(before - targetPlaybackRate) < 0.01) {
+        return false;
+      }
+
+      video.defaultPlaybackRate = targetPlaybackRate;
+      video.playbackRate = targetPlaybackRate;
+
+      const after = Number(video.playbackRate || 1);
+      log(`배속 적용: ${before}x -> ${after}x / target=${targetPlaybackRate}x / reason=${reason}`);
+      return Math.abs(after - targetPlaybackRate) < 0.01;
+    } catch (error) {
+      log(`배속 적용 실패 / reason=${reason}`, error);
+      return false;
+    }
+  }
+
+  // 새로 발견한 video 에 이벤트를 걸어 사이트가 배속을 되돌려도 다시 맞춘다.
+  function bindVideo(video, reason) {
+    if (!(video instanceof HTMLVideoElement)) {
+      return;
+    }
+
+    if (boundVideos.has(video)) {
+      applyPlaybackRate(video, `${reason}:already-bound`);
+      return;
+    }
+
+    boundVideos.add(video);
+
+    const syncPlaybackRate = (event) => {
+      applyPlaybackRate(video, `${reason}:${event.type}`);
+    };
+
+    video.addEventListener('loadedmetadata', syncPlaybackRate);
+    video.addEventListener('play', syncPlaybackRate);
+    video.addEventListener('playing', syncPlaybackRate);
+    video.addEventListener('ratechange', syncPlaybackRate);
+
+    applyPlaybackRate(video, `${reason}:bind`);
+  }
+
+  // 현재 루트에서 video 태그를 찾아 저장된 배속을 유지하도록 연결한다.
+  function scanVideos(root, reason) {
+    if (!(root instanceof Element) && !(root instanceof Document)) {
+      return;
+    }
+
+    if (root instanceof HTMLVideoElement) {
+      bindVideo(root, reason);
+      return;
+    }
+
+    const videos = root.querySelectorAll('video');
+    for (const video of videos) {
+      bindVideo(video, reason);
+    }
+  }
+
+  // 현재 문서와 접근 가능한 iframe 안의 video에 최신 배속 설정을 다시 적용한다.
+  function refreshPlaybackRate(reason) {
+    scanVideos(document, reason);
+    scanChildIframes(`${reason}:iframes`);
+  }
+
+  // 확장 팝업에서 바꾼 배속 설정을 읽어 즉시 반영한다.
+  function loadPlaybackRatePreference(reason) {
+    if (!chrome?.storage?.sync) {
+      log(`storage API를 사용할 수 없어 기본 배속 ${DEFAULT_PLAYBACK_RATE}x를 유지합니다. reason=${reason}`);
+      targetPlaybackRate = DEFAULT_PLAYBACK_RATE;
+      refreshPlaybackRate(`${reason}:no-storage`);
+      return;
+    }
+
+    chrome.storage.sync.get({ [STORAGE_KEY_PLAYBACK_RATE]: DEFAULT_PLAYBACK_RATE }, (result) => {
+      if (chrome.runtime.lastError) {
+        log(`배속 설정 로드 실패 / reason=${reason}`, chrome.runtime.lastError);
+        return;
+      }
+
+      targetPlaybackRate = normalizePlaybackRate(result[STORAGE_KEY_PLAYBACK_RATE]);
+      log(`배속 설정 로드: ${targetPlaybackRate}x / reason=${reason}`);
+      refreshPlaybackRate(`${reason}:storage-load`);
+    });
+  }
+
+  // 팝업 UI에서 사용자가 배속 버튼을 누르면 열린 탭의 content script도 즉시 반응한다.
+  function startStorageSync() {
+    if (storageSyncStarted || !chrome?.storage?.onChanged) {
+      return;
+    }
+
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync' || !changes[STORAGE_KEY_PLAYBACK_RATE]) {
+        return;
+      }
+
+      targetPlaybackRate = normalizePlaybackRate(changes[STORAGE_KEY_PLAYBACK_RATE].newValue);
+      log(`배속 설정 변경 감지: ${targetPlaybackRate}x`);
+      refreshPlaybackRate('storage-change');
+    });
+
+    storageSyncStarted = true;
   }
 
   // 팝업 문구가 있는지 느슨하게 확인한다.
@@ -248,6 +375,8 @@
         if (scanRoot(childDocument, `${reason}:child-iframe`)) {
           return true;
         }
+
+        scanVideos(childDocument, `${reason}:child-iframe`);
       } catch (error) {
         log(`iframe 직접 스캔 불가: 다른 origin 이거나 아직 로드되지 않았습니다. reason=${reason}`, error);
       }
@@ -309,6 +438,7 @@
 
       scanRoot(document, 'periodic-scan');
       scanChildIframes('periodic-scan');
+      scanVideos(document, 'periodic-scan');
     }, PERIODIC_SCAN_MS);
 
     periodicScanStarted = true;
@@ -335,6 +465,7 @@
             }
 
             scanRoot(addedNode, 'mutation-added-node');
+            scanVideos(addedNode, 'mutation-added-node');
 
             if (addedNode.tagName === 'IFRAME') {
               const frame = addedNode;
@@ -342,6 +473,7 @@
                 try {
                   if (frame.contentDocument) {
                     scanRoot(frame.contentDocument, 'iframe-load');
+                    scanVideos(frame.contentDocument, 'iframe-load');
                   }
                 } catch (error) {
                   log('iframe load 후 직접 접근 실패', error);
@@ -354,6 +486,7 @@
 
         if (mutation.target instanceof Element) {
           scanRoot(mutation.target, `mutation-${mutation.type}`);
+          scanVideos(mutation.target, `mutation-${mutation.type}`);
         }
       }
     });
@@ -373,9 +506,12 @@
   // body 준비 여부와 무관하게 안전하게 초기화한다.
   function bootstrap() {
     log(`확장 로드됨. url=${location.href}`);
+    loadPlaybackRatePreference('bootstrap');
+    startStorageSync();
     runInitialScans();
     ensureObserverStarted();
     startPeriodicScan();
+    refreshPlaybackRate('bootstrap');
   }
 
   if (document.readyState === 'loading') {

@@ -1,8 +1,15 @@
 {
   "manifest_version": 3,
   "name": "OK학당 자동 다음차시",
-  "version": "1.0.0",
-  "description": "강의 완료 팝업에서 확인 버튼을 자동으로 클릭합니다.",
+  "version": "1.1.0",
+  "description": "강의 완료 팝업 자동 확인과 사용자 지정 배속 기능을 제공합니다.",
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_title": "OK학당 자동 다음차시",
+    "default_popup": "popup.html"
+  },
   "content_scripts": [
     {
       "matches": [
